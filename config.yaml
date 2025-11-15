@@ -1,0 +1,20 @@
+﻿google_doc:
+  hindi_doc_id: "PUT_HINDI_DOC_ID_HERE"
+  english_doc_id: "PUT_ENGLISH_DOC_ID_HERE"
+
+content:
+  split_delimiter: "\n\n"
+  prefer_caption_for_short_posts: false
+  caption_max_length: 1000
+
+images:
+  root_path: "images"
+
+posting:
+  posts_per_run: 1
+  timezone: "Asia/Kolkata"
+  language_ratio: [3,1]
+
+state_file: "state.json"
+
+telegram_channel_username: "@your_channel_username_here"   # optional (we will use secret too)
