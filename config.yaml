@@ -1,6 +1,6 @@
 ﻿google_doc:
-  hindi_doc_id: "PUT_HINDI_DOC_ID_HERE"
-  english_doc_id: "PUT_ENGLISH_DOC_ID_HERE"
+  hindi_doc_id: "1J3wUivHLY-TccghyfG-EBBR3DbnyGCzs318vrkBFZyI"
+  english_doc_id: "1K2kpQcDZQRwlpgQjKpdFd8loc4x_BjCmlkDqbChW5NQ"
 
 content:
   split_delimiter: "\n\n"
@@ -17,4 +17,4 @@ posting:
 
 state_file: "state.json"
 
-telegram_channel_username: "@your_channel_username_here"   # optional (we will use secret too)
+telegram_channel_username: "@krishnasdivineteachings"
