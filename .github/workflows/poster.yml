@@ -1,11 +1,9 @@
-D:\Gita_Tele\.github\workflows\poster.yml
-
 name: Gita Telegram Poster
 
 on:
   schedule:
-    - cron: '0 2 * * *'     # 07:30 IST
-    - cron: '0 15 * * *'    # 20:30 IST
+    - cron: '0 2 * * *'
+    - cron: '0 15 * * *'
   workflow_dispatch:
 
 permissions:
