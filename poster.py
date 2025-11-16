@@ -1,4 +1,8 @@
-import os, json, yaml, requests
+# poster.py
+import os
+import json
+import yaml
+import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 
@@ -21,12 +25,12 @@ CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME") or cfg.get("telegram_chann
 if not TELEGRAM_BOT_TOKEN or not CHANNEL_USERNAME:
     raise SystemExit("Set TELEGRAM_BOT_TOKEN and CHANNEL_USERNAME in environment secrets.")
 
+# Helpers
 def fetch_doc_text(doc_id):
     url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
     r = requests.get(url, timeout=30)
     if r.status_code == 200 and r.text.strip():
         return r.text
-    # fallback to HTML
     r = requests.get(f"https://docs.google.com/document/d/{doc_id}/export?format=html", timeout=30)
     if r.status_code == 200:
         return BeautifulSoup(r.text, "html.parser").get_text("\n")
@@ -44,12 +48,12 @@ def gather_images(root):
         full = os.path.join(root, it)
         if os.path.isdir(full):
             for f in sorted(os.listdir(full)):
-                if f.lower().endswith((".jpg",".jpeg",".png",".webp")):
-                    images.append(os.path.join(full,f))
+                if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
+                    images.append(os.path.join(full, f))
     # include root-level images
     for f in sorted(os.listdir(root)):
         fp = os.path.join(root, f)
-        if os.path.isfile(fp) and f.lower().endswith((".jpg",".jpeg",".png",".webp")) and fp not in images:
+        if os.path.isfile(fp) and f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) and fp not in images:
             images.append(fp)
     return images
 
@@ -92,6 +96,31 @@ def choose_language(state):
     idx = state.get("lang_counter", 0) % total
     return "hindi" if idx < h_ratio else "english"
 
+def split_and_send_text(bot_token, chat_id, text, max_len=4000):
+    # Split by paragraphs first
+    paragraphs = [p for p in text.split("\n\n") if p is not None]
+    chunks = []
+    for para in paragraphs:
+        if len(para) <= max_len:
+            chunks.append(para)
+            continue
+        # split long paragraph into word-safe chunks
+        words = para.split()
+        cur = ""
+        for w in words:
+            if len(cur) + len(w) + (1 if cur else 0) <= max_len:
+                cur = (cur + " " + w).strip()
+            else:
+                if cur:
+                    chunks.append(cur)
+                cur = w
+        if cur:
+            chunks.append(cur)
+    # send each chunk (preserve empty paragraphs by sending a space)
+    for part in chunks:
+        to_send = part if part.strip() else " "
+        send_message(bot_token, chat_id, to_send)
+
 def main():
     print("Poster start:", datetime.utcnow().isoformat())
     hindi_msgs = split_msgs(fetch_doc_text(HINDI_DOC)) if HINDI_DOC else []
@@ -101,76 +130,36 @@ def main():
 
     for _ in range(POSTS_PER_RUN):
         lang = choose_language(state)
-        msgs = hindi_msgs if lang=="hindi" else eng_msgs
-        mi_key = "h_msg_index" if lang=="hindi" else "e_msg_index"
+        msgs = hindi_msgs if lang == "hindi" else eng_msgs
+        mi_key = "h_msg_index" if lang == "hindi" else "e_msg_index"
 
-        if state[mi_key] >= len(msgs) or state["img_index"] >= len(images):
-            print("No more messages or images.")
+        if state.get(mi_key, 0) >= len(msgs):
+            print(f"No more {lang} messages available.")
+            # still increment lang_counter so ratio cycles
+            state["lang_counter"] = state.get("lang_counter", 0) + 1
+            save_state(state)
+            continue
+        if state.get("img_index", 0) >= len(images):
+            print("No more images available.")
             continue
 
         msg = msgs[state[mi_key]]
         img = images[state["img_index"]]
 
         try:
-            def split_and_send_text(bot_token, chat_id, text, max_len=4000):
-    # split on paragraph boundaries where possible, else split by words
-    parts = []
-    for para in text.splitlines():
-        if not para:
-            parts.append("")  # preserve paragraph break
-            continue
-        if len(para) <= max_len:
-            parts.append(para)
-            continue
-        # split long paragraph into word-safe chunks
-        words = para.split()
-        cur = ""
-        for w in words:
-            if len(cur) + 1 + len(w) <= max_len:
-                cur = (cur + " " + w).strip()
+            if PREF_CAPTION and len(msg) <= CAP_LEN:
+                send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=msg)
             else:
-                parts.append(cur)
-                cur = w
-        if cur:
-            parts.append(cur)
-    # coalesce adjacent "" into paragraph breaks and ensure no part > max_len
-    final = []
-    buf = ""
-    for p in parts:
-        if p == "":
-            if buf:
-                final.append(buf)
-                buf = ""
-            final.append("")  # explicit paragraph
-        else:
-            if not buf:
-                buf = p
-            elif len(buf) + 2 + len(p) <= max_len:
-                buf = buf + "\n\n" + p
-            else:
-                final.append(buf)
-                buf = p
-    if buf:
-        final.append(buf)
-    # send each piece
-    for piece in final:
-        # if piece is empty paragraph, send an empty newline (Telegram ignores blank messages,
-        # so send a single space)
-        to_send = piece if piece.strip() else " "
-        send_message(bot_token, chat_id, to_send)
+                # send photo first, then safely split and send long text
+                send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=None)
+                split_and_send_text(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, msg, max_len=4000)
 
-# --- replace original send block with this ---
-if PREF_CAPTION and len(msg) <= CAP_LEN:
-    send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=msg)
-else:
-    # always send image first (no caption), then the full post split safely
-    send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=None)
-    split_and_send_text(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, msg, max_len=4000)
-
-            state[mi_key] += 1
-            state["img_index"] += 1
-            state["lang_counter"] += 1
+            # update indices and save state
+            state[mi_key] = state.get(mi_key, 0) + 1
+            state["img_index"] = state.get("img_index", 0) + 1
+            state["lang_counter"] = state.get("lang_counter", 0) + 1
             save_state(state)
+            print(f"Posted {lang} msg #{state[mi_key]-1} with image #{state['img_index']-1}")
         except Exception as e:
             print("Posting error:", e)
             break
