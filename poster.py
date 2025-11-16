@@ -16,6 +16,7 @@ STATE_FILE = cfg.get("state_file", "state.json")
 IMAGE_ROOT = cfg["images"]["root_path"]
 HINDI_DOC = cfg["google_doc"].get("hindi_doc_id")
 EN_DOC = cfg["google_doc"].get("english_doc_id")
+# legacy single-string delimiter kept for compatibility but we now detect robust separators via regex
 SPLIT_DELIM = cfg["content"].get("split_delimiter", "\n\n")
 PREF_CAPTION = cfg["content"].get("prefer_caption_for_short_posts", False)
 CAP_LEN = int(cfg["content"].get("caption_max_length", 1000))
@@ -27,7 +28,9 @@ CHANNEL_USERNAME = os.environ.get("CHANNEL_USERNAME") or cfg.get("telegram_chann
 if not TELEGRAM_BOT_TOKEN or not CHANNEL_USERNAME:
     raise SystemExit("Set TELEGRAM_BOT_TOKEN and CHANNEL_USERNAME in environment secrets.")
 
+# ----------------------------------------
 # Helpers
+# ----------------------------------------
 def fetch_doc_text(doc_id):
     url = f"https://docs.google.com/document/d/{doc_id}/export?format=txt"
     r = requests.get(url, timeout=30)
@@ -39,7 +42,38 @@ def fetch_doc_text(doc_id):
     raise Exception(f"Cannot fetch doc {doc_id}: status {r.status_code}")
 
 def split_msgs(text):
-    return [p.strip() for p in text.split(SPLIT_DELIM) if p.strip()]
+    """
+    Robust splitter:
+    - Normalize newlines.
+    - First split on visible strong separators (lines that are only --- or ___ or repeated em-dash).
+    - If none found, fallback to splitting on two-or-more newlines.
+    - Trim each block and return non-empty list.
+    """
+    if not text or not text.strip():
+        return []
+
+    # normalize
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+
+    # regex: match a line that contains only dashes/underscores/em-dash (3 or more) possibly with surrounding spaces
+    sep_pattern = re.compile(r'\n\s*(?:[-–—]{3,}|_{3,})\s*\n', flags=re.MULTILINE)
+
+    # if explicit custom delimiter from config exists and is not the default, prefer that
+    if SPLIT_DELIM and SPLIT_DELIM.strip() not in ["", "\\n\\n", "\n\n"]:
+        # allow user to set something like "\n---\n" in config; interpret \n escapes
+        user_delim = SPLIT_DELIM.encode('utf-8').decode('unicode_escape')
+        parts = [p.strip() for p in text.split(user_delim) if p.strip()]
+        if parts:
+            return parts
+
+    # first try the strong separator pattern
+    parts = [p.strip() for p in re.split(sep_pattern, text) if p.strip()]
+    if len(parts) > 1:
+        return parts
+
+    # fallback: split on 2+ blank lines (preserve paragraphs inside block)
+    parts = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
+    return parts
 
 def gather_images(root):
     images = []
@@ -99,64 +133,57 @@ def choose_language(state):
     return "hindi" if idx < h_ratio else "english"
 
 def split_and_send_text(bot_token, chat_id, text, max_len=4000):
-    """
-    Preserve paragraph breaks and split only when needed.
-    - Paragraphs are detected by 2+ newlines.
-    - Single newlines inside a paragraph are collapsed to spaces.
-    - Long paragraphs are split at word boundaries.
-    """
-    # normalize newlines
+    # preserve paragraph boundaries while chunking
     text = text.replace('\r\n', '\n').replace('\r', '\n')
-    # split into paragraphs using 2+ newlines
+    # collapse multiple blank lines to exactly two for consistency
+    text = re.sub(r'\n{3,}', '\n\n', text)
+
+    # split into paragraphs on two newlines (we already used stronger separators earlier)
     paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
 
     chunks = []
     cur = ""
     for para in paragraphs:
-        # collapse internal newlines to single spaces
+        # collapse internal single newlines into spaces so paragraphs are single-line blocks
         para_clean = re.sub(r'\s*\n\s*', ' ', para).strip()
         if not cur:
-            # start with this paragraph
             if len(para_clean) <= max_len:
                 cur = para_clean
             else:
-                # paragraph itself too long — break by words
+                # long paragraph -> break by words
                 words = para_clean.split()
-                temp = ""
+                tmp = ""
                 for w in words:
-                    if len(temp) + (1 if temp else 0) + len(w) <= max_len:
-                        temp = (temp + " " + w).strip()
+                    if len(tmp) + (1 if tmp else 0) + len(w) <= max_len:
+                        tmp = (tmp + " " + w).strip()
                     else:
-                        if temp:
-                            chunks.append(temp)
-                        temp = w
-                if temp:
-                    cur = temp
+                        if tmp:
+                            chunks.append(tmp)
+                        tmp = w
+                if tmp:
+                    cur = tmp
         else:
-            # try to append paragraph with a double newline separator
             candidate = cur + "\n\n" + para_clean
             if len(candidate) <= max_len:
                 cur = candidate
             else:
                 chunks.append(cur)
-                # now start new current with para_clean (may itself be long)
                 if len(para_clean) <= max_len:
                     cur = para_clean
                 else:
                     words = para_clean.split()
-                    temp = ""
+                    tmp = ""
                     for w in words:
-                        if len(temp) + (1 if temp else 0) + len(w) <= max_len:
-                            temp = (temp + " " + w).strip()
+                        if len(tmp) + (1 if tmp else 0) + len(w) <= max_len:
+                            tmp = (tmp + " " + w).strip()
                         else:
-                            if temp:
-                                chunks.append(temp)
-                            temp = w
-                    cur = temp
+                            if tmp:
+                                chunks.append(tmp)
+                            tmp = w
+                    cur = tmp
     if cur:
         chunks.append(cur)
 
-    # send chunks one by one with small delay
     for part in chunks:
         to_send = part if part.strip() else " "
         send_message(bot_token, chat_id, to_send)
