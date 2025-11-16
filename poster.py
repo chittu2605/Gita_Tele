@@ -112,11 +112,61 @@ def main():
         img = images[state["img_index"]]
 
         try:
-            if PREF_CAPTION and len(msg) <= CAP_LEN:
-                send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=msg)
+            def split_and_send_text(bot_token, chat_id, text, max_len=4000):
+    # split on paragraph boundaries where possible, else split by words
+    parts = []
+    for para in text.splitlines():
+        if not para:
+            parts.append("")  # preserve paragraph break
+            continue
+        if len(para) <= max_len:
+            parts.append(para)
+            continue
+        # split long paragraph into word-safe chunks
+        words = para.split()
+        cur = ""
+        for w in words:
+            if len(cur) + 1 + len(w) <= max_len:
+                cur = (cur + " " + w).strip()
             else:
-                send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=None)
-                send_message(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, msg)
+                parts.append(cur)
+                cur = w
+        if cur:
+            parts.append(cur)
+    # coalesce adjacent "" into paragraph breaks and ensure no part > max_len
+    final = []
+    buf = ""
+    for p in parts:
+        if p == "":
+            if buf:
+                final.append(buf)
+                buf = ""
+            final.append("")  # explicit paragraph
+        else:
+            if not buf:
+                buf = p
+            elif len(buf) + 2 + len(p) <= max_len:
+                buf = buf + "\n\n" + p
+            else:
+                final.append(buf)
+                buf = p
+    if buf:
+        final.append(buf)
+    # send each piece
+    for piece in final:
+        # if piece is empty paragraph, send an empty newline (Telegram ignores blank messages,
+        # so send a single space)
+        to_send = piece if piece.strip() else " "
+        send_message(bot_token, chat_id, to_send)
+
+# --- replace original send block with this ---
+if PREF_CAPTION and len(msg) <= CAP_LEN:
+    send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=msg)
+else:
+    # always send image first (no caption), then the full post split safely
+    send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=None)
+    split_and_send_text(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, msg, max_len=4000)
+
             state[mi_key] += 1
             state["img_index"] += 1
             state["lang_counter"] += 1
