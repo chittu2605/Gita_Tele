@@ -39,7 +39,7 @@ def gather_images(root):
     images = []
     if not os.path.isdir(root):
         return images
-    items = sorted(os.listdir(root), key=lambda x: (int(x) if x.isdigit() else x))
+    items = sorted(os.listdir(root), key=lambda x: (0, int(x)) if x.isdigit() else (1, x.lower()))
     for it in items:
         full = os.path.join(root, it)
         if os.path.isdir(full):
