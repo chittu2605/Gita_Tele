@@ -1,5 +1,7 @@
 # poster.py
 import os
+import re
+import time
 import json
 import yaml
 import requests
@@ -97,29 +99,68 @@ def choose_language(state):
     return "hindi" if idx < h_ratio else "english"
 
 def split_and_send_text(bot_token, chat_id, text, max_len=4000):
-    # Split by paragraphs first
-    paragraphs = [p for p in text.split("\n\n") if p is not None]
+    """
+    Preserve paragraph breaks and split only when needed.
+    - Paragraphs are detected by 2+ newlines.
+    - Single newlines inside a paragraph are collapsed to spaces.
+    - Long paragraphs are split at word boundaries.
+    """
+    # normalize newlines
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    # split into paragraphs using 2+ newlines
+    paragraphs = [p.strip() for p in re.split(r'\n{2,}', text) if p.strip()]
+
     chunks = []
+    cur = ""
     for para in paragraphs:
-        if len(para) <= max_len:
-            chunks.append(para)
-            continue
-        # split long paragraph into word-safe chunks
-        words = para.split()
-        cur = ""
-        for w in words:
-            if len(cur) + len(w) + (1 if cur else 0) <= max_len:
-                cur = (cur + " " + w).strip()
+        # collapse internal newlines to single spaces
+        para_clean = re.sub(r'\s*\n\s*', ' ', para).strip()
+        if not cur:
+            # start with this paragraph
+            if len(para_clean) <= max_len:
+                cur = para_clean
             else:
-                if cur:
-                    chunks.append(cur)
-                cur = w
-        if cur:
-            chunks.append(cur)
-    # send each chunk (preserve empty paragraphs by sending a space)
+                # paragraph itself too long — break by words
+                words = para_clean.split()
+                temp = ""
+                for w in words:
+                    if len(temp) + (1 if temp else 0) + len(w) <= max_len:
+                        temp = (temp + " " + w).strip()
+                    else:
+                        if temp:
+                            chunks.append(temp)
+                        temp = w
+                if temp:
+                    cur = temp
+        else:
+            # try to append paragraph with a double newline separator
+            candidate = cur + "\n\n" + para_clean
+            if len(candidate) <= max_len:
+                cur = candidate
+            else:
+                chunks.append(cur)
+                # now start new current with para_clean (may itself be long)
+                if len(para_clean) <= max_len:
+                    cur = para_clean
+                else:
+                    words = para_clean.split()
+                    temp = ""
+                    for w in words:
+                        if len(temp) + (1 if temp else 0) + len(w) <= max_len:
+                            temp = (temp + " " + w).strip()
+                        else:
+                            if temp:
+                                chunks.append(temp)
+                            temp = w
+                    cur = temp
+    if cur:
+        chunks.append(cur)
+
+    # send chunks one by one with small delay
     for part in chunks:
         to_send = part if part.strip() else " "
         send_message(bot_token, chat_id, to_send)
+        time.sleep(1)
 
 def main():
     print("Poster start:", datetime.utcnow().isoformat())
@@ -135,7 +176,6 @@ def main():
 
         if state.get(mi_key, 0) >= len(msgs):
             print(f"No more {lang} messages available.")
-            # still increment lang_counter so ratio cycles
             state["lang_counter"] = state.get("lang_counter", 0) + 1
             save_state(state)
             continue
@@ -150,11 +190,9 @@ def main():
             if PREF_CAPTION and len(msg) <= CAP_LEN:
                 send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=msg)
             else:
-                # send photo first, then safely split and send long text
                 send_photo(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, img, caption=None)
                 split_and_send_text(TELEGRAM_BOT_TOKEN, CHANNEL_USERNAME, msg, max_len=4000)
 
-            # update indices and save state
             state[mi_key] = state.get(mi_key, 0) + 1
             state["img_index"] = state.get("img_index", 0) + 1
             state["lang_counter"] = state.get("lang_counter", 0) + 1
