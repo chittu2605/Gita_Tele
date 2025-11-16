@@ -3,7 +3,7 @@
   english_doc_id: "1rkkdGUG_GQDNjWF3x0dCrbKb5d2wAbt11GS6r-VVF78"
 
 content:
-  split_delimiter: "\n\n"
+  split_delimiter: "\n---\n"
   prefer_caption_for_short_posts: false
   caption_max_length: 1000
 
