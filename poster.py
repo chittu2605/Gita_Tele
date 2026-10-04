@@ -76,21 +76,22 @@ def split_msgs(text):
     return parts
 
 def gather_images(root):
+    """All images under root (any depth), numeric folders first, then the rest; stable order."""
+    exts = (".jpg", ".jpeg", ".png", ".webp")
+    def keyf(x):
+        if x.isdigit():
+            return (0, int(x), "")
+        if x.lower().startswith("english"):
+            return (2, 0, x.lower())  # newly-counted English folders go last, keeping existing order
+        return (1, 0, x.lower())
     images = []
     if not os.path.isdir(root):
         return images
-    items = sorted(os.listdir(root), key=lambda x: (0, int(x)) if x.isdigit() else (1, x.lower()))
-    for it in items:
-        full = os.path.join(root, it)
-        if os.path.isdir(full):
-            for f in sorted(os.listdir(full)):
-                if f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")):
-                    images.append(os.path.join(full, f))
-    # include root-level images
-    for f in sorted(os.listdir(root)):
-        fp = os.path.join(root, f)
-        if os.path.isfile(fp) and f.lower().endswith((".jpg", ".jpeg", ".png", ".webp")) and fp not in images:
-            images.append(fp)
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames.sort(key=keyf)
+        for f in sorted(filenames, key=keyf):
+            if f.lower().endswith(exts):
+                images.append(os.path.join(dirpath, f))
     return images
 
 def load_state():
@@ -206,12 +207,11 @@ def main():
             state["lang_counter"] = state.get("lang_counter", 0) + 1
             save_state(state)
             continue
-        if state.get("img_index", 0) >= len(images):
-            print("No more images available.")
-            continue
+        if not images:
+            raise SystemExit("No images found - failing so the run shows red.")
 
         msg = msgs[state[mi_key]]
-        img = images[state["img_index"]]
+        img = images[state["img_index"] % len(images)]  # cycle: start over after the last image
 
         try:
             if PREF_CAPTION and len(msg) <= CAP_LEN:
@@ -227,7 +227,7 @@ def main():
             print(f"Posted {lang} msg #{state[mi_key]-1} with image #{state['img_index']-1}")
         except Exception as e:
             print("Posting error:", e)
-            break
+            raise SystemExit(1)  # make failures visible (red run) instead of silently green
 
 if __name__ == "__main__":
     main()
