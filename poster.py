@@ -145,8 +145,9 @@ def split_and_send_text(bot_token, chat_id, text, max_len=4000):
     chunks = []
     cur = ""
     for para in paragraphs:
-        # collapse internal single newlines into spaces so paragraphs are single-line blocks
-        para_clean = re.sub(r'\s*\n\s*', ' ', para).strip()
+        # keep the doc's own line breaks; only tidy spacing around them
+        para_clean = re.sub(r'[ \t]*\n[ \t]*', '\n', para).strip()
+        para_clean = re.sub(r'\n(?=https?://)', '\n\n', para_clean)  # link on its own paragraph
         if not cur:
             if len(para_clean) <= max_len:
                 cur = para_clean
