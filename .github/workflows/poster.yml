@@ -2,7 +2,7 @@ name: Gita Telegram Poster
 
 on:
   schedule:
-    - cron: '0 2 * * *'
+    - cron: '0 6 * * *'
     - cron: '0 15 * * *'
   workflow_dispatch:
 
