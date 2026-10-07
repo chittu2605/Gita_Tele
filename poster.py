@@ -114,6 +114,7 @@ def send_photo(bot_token, chat_id, image_path, caption=None):
         data = {"chat_id": chat_id}
         if caption:
             data["caption"] = caption
+            data["parse_mode"] = "HTML"  # same formatting as sendMessage
         r = requests.post(url, files=files, data=data, timeout=60)
     if r.status_code != 200:
         raise Exception(f"sendPhoto error {r.status_code}: {r.text}")
