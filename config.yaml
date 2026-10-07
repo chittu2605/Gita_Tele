@@ -1,10 +1,10 @@
-google_doc:
+﻿google_doc:
   hindi_doc_id: "1J3wUivHLY-TccghyfG-EBBR3DbnyGCzs318vrkBFZyI"
   english_doc_id: "1rkkdGUG_GQDNjWF3x0dCrbKb5d2wAbt11GS6r-VVF78"
 
 content:
   split_delimiter: "\n---\n"
-  prefer_caption_for_short_posts: true
+  prefer_caption_for_short_posts: false
   caption_max_length: 1000
 
 images:
